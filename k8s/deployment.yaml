@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fraud-detection
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection-api
+  namespace: fraud-detection
+  labels:
+    app: fraud-detection-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fraud-detection-api
+  template:
+    metadata:
+      labels:
+        app: fraud-detection-api
+    spec:
+      containers:
+      - name: fraud-detection-api
+        image: fraud-detection:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka:29092"
+        - name: REDIS_HOST
+          value: "redis"
+        - name: DB_HOST
+          value: "postgres"
+        - name: ENVIRONMENT
+          value: "kubernetes"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: model-volume
+          mountPath: /app/models
+          readOnly: true
+      volumes:
+      - name: model-volume
+        configMap:
+          name: model-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-detection-api-service
+  namespace: fraud-detection
+spec:
+  selector:
+    app: fraud-detection-api
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-consumer
+  namespace: fraud-detection
+  labels:
+    app: fraud-consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fraud-consumer
+  template:
+    metadata:
+      labels:
+        app: fraud-consumer
+    spec:
+      containers:
+      - name: fraud-consumer
+        image: fraud-detection:latest
+        command: ["python", "-m", "src.fraud_detection.streaming.consumer"]
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka:29092"
+        - name: REDIS_HOST
+          value: "redis"
+        - name: DB_HOST
+          value: "postgres"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        volumeMounts:
+        - name: model-volume
+          mountPath: /app/models
+          readOnly: true
+      volumes:
+      - name: model-volume
+        configMap:
+          name: model-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-config
+  namespace: fraud-detection
+data:
+  # This would be populated with actual model files in a real deployment
+  placeholder: "Model files would be stored here"

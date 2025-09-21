@@ -1,0 +1,188 @@
+version: '3.8'
+
+services:
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - fraud-detection
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - fraud-detection
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    container_name: redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - fraud-detection
+
+  # PostgreSQL for storing results
+  postgres:
+    image: postgres:15-alpine
+    hostname: postgres
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: fraud_detection
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - fraud-detection
+
+  # Fraud Detection API
+  fraud-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: fraud-api
+    container_name: fraud-api
+    ports:
+      - "8000:8000"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - REDIS_HOST=redis
+      - DB_HOST=postgres
+      - ENVIRONMENT=docker
+    volumes:
+      - ../models:/app/models:ro
+      - ../data:/app/data:ro
+      - ../config:/app/config:ro
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+    networks:
+      - fraud-detection
+    restart: unless-stopped
+
+  # Transaction Producer (for demo)
+  transaction-producer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: transaction-producer
+    container_name: transaction-producer
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    volumes:
+      - ../data:/app/data:ro
+      - ../config:/app/config:ro
+    depends_on:
+      - kafka
+    networks:
+      - fraud-detection
+    command: python -m src.fraud_detection.streaming.producer --mode synthetic --rate 5.0
+    restart: unless-stopped
+
+  # Fraud Detection Consumer
+  fraud-consumer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: fraud-consumer
+    container_name: fraud-consumer
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - REDIS_HOST=redis
+      - DB_HOST=postgres
+    volumes:
+      - ../models:/app/models:ro
+      - ../data:/app/data:ro
+      - ../config:/app/config:ro
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+      - fraud-api
+    networks:
+      - fraud-detection
+    command: python -m src.fraud_detection.streaming.consumer
+    restart: unless-stopped
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    hostname: prometheus
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - fraud-detection
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    hostname: grafana
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - fraud-detection
+
+volumes:
+  kafka_data:
+  redis_data:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  fraud-detection:
+    driver: bridge

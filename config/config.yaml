@@ -1,0 +1,46 @@
+kafka:
+  bootstrap_servers: ["localhost:9092"]
+  topics:
+    transactions: "transactions"
+    predictions: "predictions"
+  consumer_config:
+    group_id: "fraud-detection-consumer"
+    auto_offset_reset: "latest"
+    enable_auto_commit: false
+  producer_config:
+    acks: "all"
+    retries: 3
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+  log_level: "info"
+
+models:
+  xgboost:
+    path: "models/xgboost_model.joblib"
+    features: 30
+  lstm:
+    path: "models/lstm_model.pt"
+    sequence_length: 10
+    hidden_size: 64
+  tab_transformer:
+    path: "models/tab_transformer_model.pt"
+    embedding_dim: 32
+    num_heads: 8
+
+monitoring:
+  prometheus:
+    port: 8080
+    enabled: true
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+database:
+  host: "localhost"
+  port: 5432
+  name: "fraud_detection"
+  user: "postgres"
+  password: "postgres"
