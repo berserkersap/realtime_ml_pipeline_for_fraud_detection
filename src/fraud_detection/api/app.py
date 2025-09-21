@@ -23,8 +23,8 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 # Local imports
 from ..models.xgboost_model import XGBoostFraudDetector
-from ..models.lstm_model import LSTMFraudDetectorWrapper
-from ..models.tab_transformer import TabTransformerWrapper
+# from ..models.lstm_model import LSTMFraudDetectorWrapper
+# from ..models.tab_transformer import TabTransformerWrapper
 from ..utils.config import load_config
 
 # Configure logging
@@ -155,26 +155,26 @@ async def load_models():
             logger.error(f"Failed to load XGBoost model: {e}")
     
     # Load LSTM model
-    lstm_path = model_path / "lstm_model.pt"
-    if lstm_path.exists():
-        try:
-            models["lstm"] = LSTMFraudDetectorWrapper(config)
-            models["lstm"].load_model(str(lstm_path))
-            logger.info("LSTM model loaded successfully")
-            ACTIVE_MODELS.inc()
-        except Exception as e:
-            logger.error(f"Failed to load LSTM model: {e}")
+    # lstm_path = model_path / "lstm_model.pt"
+    # if lstm_path.exists():
+    #     try:
+    #         models["lstm"] = LSTMFraudDetectorWrapper(config)
+    #         models["lstm"].load_model(str(lstm_path))
+    #         logger.info("LSTM model loaded successfully")
+    #         ACTIVE_MODELS.inc()
+    #     except Exception as e:
+    #         logger.error(f"Failed to load LSTM model: {e}")
     
     # Load TabTransformer model
-    tab_path = model_path / "tab_transformer_model.pt"
-    if tab_path.exists():
-        try:
-            models["tab_transformer"] = TabTransformerWrapper(config)
-            models["tab_transformer"].load_model(str(tab_path))
-            logger.info("TabTransformer model loaded successfully")
-            ACTIVE_MODELS.inc()
-        except Exception as e:
-            logger.error(f"Failed to load TabTransformer model: {e}")
+    # tab_path = model_path / "tab_transformer_model.pt"
+    # if tab_path.exists():
+    #     try:
+    #         models["tab_transformer"] = TabTransformerWrapper(config)
+    #         models["tab_transformer"].load_model(str(tab_path))
+    #         logger.info("TabTransformer model loaded successfully")
+    #         ACTIVE_MODELS.inc()
+    #     except Exception as e:
+    #         logger.error(f"Failed to load TabTransformer model: {e}")
 
 
 def prepare_dataframe(transactions: List[TransactionFeatures]) -> pd.DataFrame:
@@ -204,6 +204,18 @@ def prepare_dataframe(transactions: List[TransactionFeatures]) -> pd.DataFrame:
             df[feature] = default_value
         else:
             df[feature] = df[feature].fillna(default_value)
+    
+    # Add one-hot encoding for categorical features in exact order expected by model
+    # Merchant categories
+    merchant_categories = ['entertainment', 'gas', 'grocery', 'online', 'other',
+                          'pharmacy', 'restaurant', 'retail', 'travel', 'utility']
+    for cat in merchant_categories:
+        df[f'merchant_{cat}'] = (df['merchant_category'] == cat).astype(int)
+    
+    # Locations
+    locations = ['Midwest', 'Northeast', 'Southeast', 'Southwest', 'West']
+    for loc in locations:
+        df[f'location_{loc}'] = (df['location'] == loc).astype(int)
     
     return df
 
